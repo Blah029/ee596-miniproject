@@ -58,8 +58,10 @@ class ImageEncoder:
 
     def zeropad(self):
         """Pad image with zeros before block segmentation"""
-        self.pad_rows = self.blocksize - self.height%self.blocksize
-        self.pad_cols = self.blocksize - self.width%self.blocksize
+        if self.height%self.blocksize != 0:
+            self.pad_rows = self.blocksize - self.height%self.blocksize
+        if self.width%self.blocksize != 0:
+            self.pad_cols = self.blocksize - self.width%self.blocksize
         self.image = np.pad(self.image,
                             ((0, self.pad_rows), (0, self.pad_cols), (0, 0)),
                             mode="constant", constant_values=0)
@@ -224,7 +226,7 @@ logger = logging.getLogger("ee596-miniproject-enc")
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
     decoder.logger.setLevel(logging.DEBUG)
-    utils.logger.setLevel(logging.DEBUG)
+    # utils.logger.setLevel(logging.DEBUG)
     ## Turn off numpy scientific notation
     np.set_printoptions(suppress=True)
     ## Set working directory and read image

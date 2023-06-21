@@ -50,6 +50,7 @@ class ImageDecoder:
             self.codebooks[i] = {int(float(k)):v for k,v in codebook.items()}
         logger.debug(f"height: {self.height}, width: {self.width}")
         logger.debug(f"row padding: {self.pad_rows}, column padding: {self.pad_cols}")
+        logger.debug(f"blocksize: {self.blocksize}")
         # logger.debug(f"y channel qtable: \n{self.qtable[:,:,0]}")
         # logger.debug(f"codebooks:")
         # ## Control logging
@@ -90,6 +91,7 @@ class ImageDecoder:
             for j in range(self.macroblocks_rlc.shape[0]):
                 self.macroblocks_rlc[j, i][0] = dc_decoded[j]
         logger.debug(f"dpcm decoded dc values: {[self.macroblocks_rlc[j,0][0] for j in range(min(self.macroblocks_rlc.shape[0],5))]}")
+        logger.debug(f"dpcm decoded shape: {self.macroblocks_rlc.shape}")
         logger.debug(f"dpcm decoded: \n{self.macroblocks_rlc[0,0]}")
 
     def decode_runlength(self):
@@ -101,6 +103,7 @@ class ImageDecoder:
                       self.blocksize**2,
                       3),
                       dtype=int)
+        logger.debug(f"zigzag placeholder shape: {self.macroblocks_zigzag.shape}")
         for i in range(self.macroblocks_zigzag.shape[0]):
             for j in range(3):
                 self.macroblocks_zigzag[i,:,j] = decoded[i,j]

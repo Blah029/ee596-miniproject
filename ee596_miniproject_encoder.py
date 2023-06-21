@@ -96,10 +96,6 @@ class ImageEncoder:
             qtable_luma = utils.qtable_luma
         if qtable_chroma == None:
             qtable_chroma = utils.qtable_chroma
-        ## Resize quantisation tables to match macrobloack
-        ## Truncate
-        # qtable_luma = qtable_luma[:self.blocksize,:self.blocksize]
-        # qtable_chroma = qtable_chroma[:self.blocksize,:self.blocksize]
         ## Resize quantisation tables if necessary
         qtable_luma = cv2.resize(qtable_luma.astype(np.int16),
                                  (self.blocksize,self.blocksize))
@@ -110,10 +106,6 @@ class ImageEncoder:
         logger.debug(f"yuv table shape: {self.qtable.shape}")
         self.macroblocks_quantised = np.empty_like(self.macroblocks_dct, 
                                                    dtype=int)
-        ## For RGB image
-        # for i,block_row in enumerate(self.macroblocks_dct):
-        #     for j,block in enumerate(block_row):
-        #         self.macroblocks_quantised[i,j] = np.round(block/qtable_rgb)
         ## For YUV image
         for i,block_row in enumerate(self.macroblocks_dct):
             for j,block in enumerate(block_row):
@@ -169,6 +161,7 @@ class ImageEncoder:
             ## Replace the first elements of each sub-array with the encoded value
             for j in range(self.macroblocks_dpcm.shape[0]):
                 self.macroblocks_dpcm[j, i][0] = dc_encoded[j]
+            ## Control logging
             # if i == 0:
             #     logger.debug(f"dpcm input: \n{dc[:5]}")
             #     logger.debug(f"dpcm output: \n{dc_encoded[:5]}")

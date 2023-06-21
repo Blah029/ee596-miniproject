@@ -150,7 +150,7 @@ class ImageEncoder:
         each macroblock
         """
         self.macroblocks_dpcm = self.macroblocks_rlc.copy()
-        logger.debug(f"dc values input: \n{[self.macroblocks_dpcm[j,0][0]  for j in range(min(self.macroblocks_dpcm.shape[0],5))]}")
+        logger.debug(f"dc values: \n{[self.macroblocks_dpcm[j,0][0]  for j in range(min(self.macroblocks_dpcm.shape[0],5))]}")
         for i in range(3):
             ## Extract the DC values
             dc = np.array([self.macroblocks_dpcm[j, i][0] \
@@ -165,7 +165,7 @@ class ImageEncoder:
             # if i == 0:
             #     logger.debug(f"dpcm input: \n{dc[:5]}")
             #     logger.debug(f"dpcm output: \n{dc_encoded[:5]}")
-        logger.debug(f"new dc values: \n{[self.macroblocks_dpcm[j,0][0] for j in range(min(self.macroblocks_dpcm.shape[0],5))]}")
+        logger.debug(f"dpcm encoded dc values: \n{[self.macroblocks_dpcm[j,0][0] for j in range(min(self.macroblocks_dpcm.shape[0],5))]}")
         ## Control logging
         for i in range(1):
             logger.debug(f"coded block {i} shape: {self.macroblocks_dpcm[i,0].shape}")
@@ -185,12 +185,12 @@ class ImageEncoder:
         vect_generatecodebook = np.vectorize(huffman.codebook, otypes=[object])
         probabilities = vect_getprobabilites(symbolstreams)
         self.codebooks = vect_generatecodebook(probabilities)
-        logger.debug(f"probabilities: \n{probabilities[0][:5]}")
-        logger.debug(f"self.codebooks")
+        logger.debug(f"probabilities (truncated): \n{probabilities[0][:5]}")
+        logger.debug(f"self.codebooks (truncated):")
         ## Control logging
         for i,key in enumerate(self.codebooks[0]):
             if i < 5:
-                logger.debug(f"{int(key):5d} {self.codebooks[0][key]:>5}")
+                logger.debug(f"{key:7} {self.codebooks[0][key]:>5}")
         self.macroblocks_huffman = np.empty_like(self.macroblocks_dpcm)
         for i in range(3):
             vect_encodesymbols = np.vectorize(utils.encodesymbols, otypes=[object])
@@ -224,7 +224,7 @@ logger = logging.getLogger("ee596-miniproject-enc")
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
     decoder.logger.setLevel(logging.DEBUG)
-    # utils.logger.setLevel(logging.DEBUG)
+    utils.logger.setLevel(logging.DEBUG)
     ## Turn off numpy scientific notation
     np.set_printoptions(suppress=True)
     ## Set working directory and read image

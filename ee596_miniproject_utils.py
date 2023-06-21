@@ -112,7 +112,7 @@ def encode_rlc(array:np.ndarray):
             count = 1
         else:
             count += 1
-    logger.debug(f"encoded shape: {np.array(encoded).shape}, array shape: {array.shape}")
+    # logger.debug(f"encoded shape: {np.array(encoded).shape}, array shape: {array.shape}")
     if encoded[-1][0] != array[-1]:
         encoded.append([previous, count])
     return np.array(encoded)
@@ -131,7 +131,6 @@ def getprobabilities(array:np.ndarray):
     """Returns a 2D array of symbols and their probabilities"""
     symbols,counts = np.unique(array, return_counts=True)
     probabilities = np.array(list(zip(symbols,counts/array.size)))
-    # probabilities = probabilities[probabilities[:, 1].argsort()[::-1]]
     probabilities = probabilities[np.lexsort((probabilities[:,0], 
                                               probabilities[:,1]))][::-1]
     logger.debug(f"symbols: \n{symbols}")

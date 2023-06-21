@@ -149,8 +149,9 @@ class ImageDecoder:
         ## Merge macroblocks and remove padding
         self.image = utils.mergeblocks(self.macroblocks)[:self.height-self.pad_rows,:self.width-self.pad_cols,:]
         ## Preprocess for colourspace conversion
-        self.image = np.float32(self.image/255)
         logger.debug(f"image max: {np.max(self.image)}, min: {np.min(self.image)}")
+        self.image = np.float32(self.image/np.max(self.image))
+        logger.debug(f"normalised max: {np.max(self.image)}, min: {np.min(self.image)}")
         ## Convert from YUV to RGB
         self.image = cv2.cvtColor(self.image,cv2.COLOR_YUV2RGB)
 

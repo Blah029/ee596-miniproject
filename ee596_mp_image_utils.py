@@ -1,4 +1,6 @@
-"""Functions used in ee596_miniproject"""
+"""EE596 Miniproject - Functions used in encoders and decoders
+E/17/371
+"""
 import cv2
 import logging
 import matplotlib.pyplot as plt
@@ -26,7 +28,41 @@ qtable_chroma = np.array([[17, 18, 24, 47, 99, 99, 99, 99],
                             [99, 99, 99, 99, 99, 99, 99, 99]])
 
 
-def mergeblocks(macroblocks:np.ndarray):
+def zeropad(image:np.ndarray,height:int,width:int, blocksize:int=8):
+    """Pad image with zeros before block segmentation"""
+    if height%blocksize != 0:
+        pad_rows = blocksize - height%blocksize
+    else:
+        pad_rows = 0
+    if width%blocksize != 0:
+        pad_cols = blocksize - width%blocksize
+    else:
+        pad_cols = 0
+    image = np.pad(image,
+                        ((0, pad_rows), (0, pad_cols), (0, 0)),
+                        mode="constant", constant_values=0)
+    logger.debug(f"pad rows: {pad_rows}, pad columnss: {pad_cols}")
+    return image,pad_rows,pad_cols
+
+
+def split_macroblocks(image:np.ndarray,height:int,width:int, blocksize:int=8):
+    """Segment image into 8x8 macroblocks"""
+    macroblocks = []
+    for i in range(0,int(height),blocksize):
+        macroblocks_row = []
+        for j in range(0,int(width),blocksize):
+            macroblocks_row.append(image[i:i+blocksize,
+                                            j:j+blocksize,:])
+        macroblocks.append(macroblocks_row)
+    macroblocks = np.array(macroblocks).squeeze()
+    logger.debug(f"split shape: {macroblocks.shape}, max: {np.max(macroblocks)}")
+    logger.debug(f"split y: \n{macroblocks[0,0,:,:,0]}")
+    # logger.debug(f"split cb: \n{macroblocks[0,0,:,:,1]}")
+    # logger.debug(f"split cr: \n{macroblocks[0,0,:,:,2]}")
+    return macroblocks
+
+
+def merge_macrblocks(macroblocks:np.ndarray):
     """Merge an array of macroblocks and return full image"""
     merged = []
     for row in macroblocks:
@@ -39,7 +75,7 @@ def plot_rgb(image:np.ndarray, figname:str=None):
     global figno
     ## Merge macroblocks
     if len(image.shape) == 5:
-        image = mergeblocks(image)
+        image = merge_macrblocks(image)
     if figname == None:
         plt.figure(f"Figure {figno}")
     else:
@@ -55,9 +91,8 @@ def plot_yuv(image:np.ndarray, figname:str=None):
     """
     ## Merge macroblocks
     if len(image.shape) == 5:
-        image = mergeblocks(image)
-    image = cv2.cvtColor(image,cv2.COLOR_YUV2BGR)
-    image = np.stack([image[:,:,2],image[:,:,1],image[:,:,0]], axis=2)
+        image = merge_macrblocks(image)
+    image = cv2.cvtColor(np.float32(image),cv2.COLOR_YUV2RGB)
     plot_rgb(image,figname)
 
 
@@ -65,7 +100,7 @@ def plot_yuv_layers(image:np.ndarray, figname:str=None):
     """Merge macroblocks if present, and plot layers of YUV image"""
     ## Merge macroblocks
     if len(image.shape) == 5:
-        image = mergeblocks(image)
+        image = merge_macrblocks(image)
     fig,ax = plt.subplots(2,2)
     if figname == None:
         fig.suptitle(f"Figure {figno} - YUV layers")
@@ -82,6 +117,39 @@ def plot_yuv_layers(image:np.ndarray, figname:str=None):
                            np.zeros(image[:,:,0].shape),
                            np.zeros(image[:,:,0].shape)], axis=2))
     plt.show()
+
+
+def get_qtable(quality_factor:int=50, blocksize:int=8, qtable:np.ndarray=None):
+    """Return 3-layer quatisation table for 
+    given quality level and macroblock size
+    """
+    ## Use standard tables, resize if necessary
+    global qtable_luma,qtable_chroma
+    if qtable == None:
+        qtable_luma = cv2.resize(qtable_luma.astype(np.int16),
+                                 (blocksize,blocksize))
+        qtable_chroma = cv2.resize(qtable_chroma.astype(np.int16),
+                                 (blocksize,blocksize))
+        qtable = np.stack([qtable_luma,qtable_chroma,qtable_chroma],axis=2)
+    logger.debug(f"qtable y: \n{qtable[:,:,0]}")
+    ## Adjust for quality level
+    if quality_factor < 1 or quality_factor > 100:
+        raise ValueError("Quality factor must be between 1 and 100")
+    if quality_factor < 50:
+        scaling_factor = 5000 / quality_factor
+    else:
+        scaling_factor = 200 - 2 * quality_factor
+    qtable_new = np.zeros_like(qtable, dtype=int)
+    logger.debug(f"new qtable y: \n{qtable_new[:,:,0]}")
+    for i in range(blocksize):
+        for j in range(blocksize):
+            for k in range(3):
+                qtable_new[i,j,k] = int((scaling_factor * qtable[i,j,k] + 50) / 100)
+                if qtable_new[i,j,k] == 0:
+                    qtable_new[i,j,k] = 1
+                elif qtable_new[i,j,k] > 255:
+                    qtable_new[i,j,k] = 255
+    return qtable_new
 
 
 def tozigzag(array:np.ndarray):
@@ -133,9 +201,9 @@ def getprobabilities(array:np.ndarray):
     probabilities = np.array(list(zip(symbols,counts/array.size)))
     probabilities = probabilities[np.lexsort((probabilities[:,0], 
                                               probabilities[:,1]))][::-1]
-    logger.debug(f"symbols: \n{symbols}")
-    logger.debug(f"counts: \n{counts}")
-    logger.debug(f"probabilities: \n{probabilities}")
+    # logger.debug(f"symbols: \n{symbols}")
+    # logger.debug(f"counts: \n{counts}")
+    # logger.debug(f"probabilities: \n{probabilities}")
     return probabilities
 
 
@@ -226,7 +294,7 @@ def fromzigzag(array:np.ndarray, blocksize:int=8):
 
 ## Set up th logger
 logging.basicConfig(format="[%(name)s][%(levelname)s] %(message)s")
-logger = logging.getLogger("ee596-miniproject-utils")
+logger = logging.getLogger("ee596-mp-imutils")
 ## Main sequence
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)

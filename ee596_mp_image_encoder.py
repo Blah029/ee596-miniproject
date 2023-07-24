@@ -24,19 +24,33 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.fftpack import dct
 
-import ee596_miniproject_decoder as decoder
-import ee596_miniproject_utils as utils
+import ee596_mp_image_decoder as imdec
+import ee596_mp_image_utils as imutils
 
 
 class ImageEncoder:
     def __init__(self, image:np.ndarray, workingdir:str, label:str="image", 
-                 blocksize:int=8, qlevels:int=8):
+                 quality="medium", blocksize:int=8, qlevels:int=8):
         """Initialise ImageEncoder object"""
         ## Strip alpha channel and convert to YUV
         self.image = image[:,:,:3]
         self.image = cv2.cvtColor(self.image,cv2.COLOR_RGB2YUV)
+        # imutils.plot_rgb(self.image,"Read")
+        # imutils.plot_yuv(self.image,"Read")
         self.workingdir = workingdir
         self.label = label
+        if quality == "low":
+            self.quality = 10
+        elif quality == "medium":
+            self.quality = 50
+        elif quality == "high":
+            self.quality = 90
+        elif type(quality) == int:
+            self.quality = quality
+        else:
+            logger.warning(f"Quality level not valid. Defaulting to medium.")
+            self.quality = 50
+        logger.debug(f"quality factor: {self.quality}")
         self.blocksize = blocksize
         self.qlevels = qlevels
         self.height,self.width,_ = image.shape
@@ -44,68 +58,82 @@ class ImageEncoder:
         ## Scale to 0-255 range
         if int(np.max(self.image)) == 1:
             self.image = np.int32(self.image*255)
-        if self.height%self.blocksize != 0 or self.width%self.blocksize != 0:
-            self.zeropad()
-            logger.debug(f"image height or width is not divisible by {self.blocksize}. row padding: {self.pad_rows}, column padding: {self.pad_cols}")
-        self.blocksegmentation()
+        # self.zeropad()
+        # self.blocksegmentation()
+        self.preprocess()
         self.applydct()
         self.quantise_table()
         self.blockstozigzag()
         self.code_runlength()
         self.dc_dpcm()
         self.encode_huffman()
-        self.write_json()
+        self.perpare_data()
+        # self.write_data()
 
-    def zeropad(self):
-        """Pad image with zeros before block segmentation"""
-        if self.height%self.blocksize != 0:
-            self.pad_rows = self.blocksize - self.height%self.blocksize
-        if self.width%self.blocksize != 0:
-            self.pad_cols = self.blocksize - self.width%self.blocksize
-        self.image = np.pad(self.image,
-                            ((0, self.pad_rows), (0, self.pad_cols), (0, 0)),
-                            mode="constant", constant_values=0)
-        self.height,self.width,_ = image.shape
-        logger.debug(f"pad rows: {self.pad_rows}, pad columnss: {self.pad_cols}")
+    # def zeropad(self):
+    #     """Pad image with zeros before block segmentation"""
+    #     if self.height%self.blocksize != 0:
+    #         self.pad_rows = self.blocksize - self.height%self.blocksize
+    #     if self.width%self.blocksize != 0:
+    #         self.pad_cols = self.blocksize - self.width%self.blocksize
+    #     self.image = np.pad(self.image,
+    #                         ((0, self.pad_rows), (0, self.pad_cols), (0, 0)),
+    #                         mode="constant", constant_values=0)
+    #     self.height,self.width,_ = image.shape
+    #     logger.debug(f"pad rows: {self.pad_rows}, pad columnss: {self.pad_cols}")
+    #     imutils.plot_rgb(self.image,"Padded")
+    #     imutils.plot_yuv(self.image,"Padded")
 
-    def blocksegmentation(self):
-        """Segment image into 8x8 macroblocks"""
-        macroblocks = []
-        for i in range(0,int(self.height),self.blocksize):
-            macroblocks_row = []
-            for j in range(0,int(self.width),self.blocksize):
-                macroblocks_row.append(self.image[i:i+self.blocksize,
-                                             j:j+self.blocksize,:])
-            macroblocks.append(macroblocks_row)
-        self.macroblocks = np.array(macroblocks).squeeze()
-        logger.debug(f"segemented shape: {self.macroblocks.shape}, max: {np.max(self.macroblocks)}")
-        logger.debug(f"segmeted: \n{self.macroblocks[0,0,:,:,0]}")
+    # def blocksegmentation(self):
+    #     """Segment image into 8x8 macroblocks"""
+    #     macroblocks = []
+    #     for i in range(0,int(self.height),self.blocksize):
+    #         macroblocks_row = []
+    #         for j in range(0,int(self.width),self.blocksize):
+    #             macroblocks_row.append(self.image[i:i+self.blocksize,
+    #                                          j:j+self.blocksize,:])
+    #         macroblocks.append(macroblocks_row)
+    #     self.macroblocks = np.array(macroblocks).squeeze()
+    #     logger.debug(f"segemented shape: {self.macroblocks.shape}, max: {np.max(self.macroblocks)}")
+    #     logger.debug(f"segmeted y: \n{self.macroblocks[0,0,:,:,0]}")
+    #     logger.debug(f"segmeted cb: \n{self.macroblocks[0,0,:,:,1]}")
+    #     logger.debug(f"segmeted cr: \n{self.macroblocks[0,0,:,:,2]}")
+    def preprocess(self):
+        """Pad image with zeros and split into macroblocks"""
+        self.image,self.pad_rows,self.pad_cols \
+            = imutils.zeropad(self.image,self.height,self.width,
+                              self.blocksize)
+        self.height,self.width,_ = self.image.shape
+        self.macroblocks = imutils.split_macroblocks(self.image,self.height,
+                                                     self.width,self.blocksize)
 
     def applydct(self):
         """Apply discrete cosine transform to segmented blocks"""
         self.macroblocks_dct = dct(dct(self.macroblocks,axis=2),axis=3)
         # logger.debug(f"dct row shape: {self.macroblocks_dct[0].shape}")
         logger.debug(f"dct: \n{self.macroblocks_dct[0,0,:,:,0]}")
-        # utils.plot_rgb(self.macroblocks_dct,"DCT")
+        # imutils.plot_rgb(self.macroblocks_dct,"DCT")
 
-    def quantise_table(self, qtable_luma:np.ndarray=None, 
-                       qtable_chroma:np.ndarray=None):
+    def quantise_table(self):
         """Quantise the transformed macroblocks using the given quantisation
         table, or the standard JPEG quantisation table
         """
         ## Set default quantisation tables
-        if qtable_luma == None:
-            qtable_luma = utils.qtable_luma
-        if qtable_chroma == None:
-            qtable_chroma = utils.qtable_chroma
-        ## Resize quantisation tables if necessary
-        qtable_luma = cv2.resize(qtable_luma.astype(np.int16),
-                                 (self.blocksize,self.blocksize))
-        qtable_chroma = cv2.resize(qtable_chroma.astype(np.int16),
-                                 (self.blocksize,self.blocksize))
-        logger.debug(f"luma table shape: {qtable_luma.shape}, chroma table shape: {qtable_chroma.shape}")
-        self.qtable = np.stack([qtable_luma,qtable_chroma,qtable_chroma],axis=2)
-        logger.debug(f"yuv table shape: {self.qtable.shape}")
+        # if qtable_luma == None:
+        #     qtable_luma = imutils.qtable_luma
+        # if qtable_chroma == None:
+        #     qtable_chroma = imutils.qtable_chroma
+        # ## Resize quantisation tables if necessary
+        # qtable_luma = cv2.resize(qtable_luma.astype(np.int16),
+        #                          (self.blocksize,self.blocksize))
+        # qtable_chroma = cv2.resize(qtable_chroma.astype(np.int16),
+        #                          (self.blocksize,self.blocksize))
+        # logger.debug(f"luma table shape: {qtable_luma.shape}, chroma table shape: {qtable_chroma.shape}")
+        # self.qtable = \
+        #     np.stack([qtable_luma,qtable_chroma,qtable_chroma],axis=2)
+        self.qtable = imutils.get_qtable(self.quality,self.blocksize)
+        logger.debug(f"qtable shape: {self.qtable.shape}")
+        logger.debug(f"qtable y: \n{self.qtable[:,:,0]}")
         self.macroblocks_quantised = np.empty_like(self.macroblocks_dct, 
                                                    dtype=int)
         ## For YUV image
@@ -113,10 +141,12 @@ class ImageEncoder:
             for j,block in enumerate(block_row):
                 self.macroblocks_quantised[i,j] = np.round(block/self.qtable)
         # logger.debug(f"dct: \n{np.around(self.macroblocks_dct[0,0,:,:,0],2)}")
-        logger.debug(f"quantised: \n{self.macroblocks_quantised[0,0,:,:,0]}")
+        logger.debug(f"quantised y: \n{self.macroblocks_quantised[0,0,:,:,0]}")
+        # logger.debug(f"quantised cb: \n{self.macroblocks_quantised[0,0,:,:,1]}")
+        # logger.debug(f"quantised cr: \n{self.macroblocks_quantised[0,0,:,:,2]}")
         # logger.debug(f"reconstructed: \n{self.macroblocks_quantised[0,0,:,:,0]*self.qtable[:,:,0]}")
         logger.debug(f"ymax: {np.max(self.macroblocks_quantised[:,:,0])}, cbmax: {np.max(self.macroblocks_quantised[:,:,1])}, crmax: {np.max(self.macroblocks_quantised[:,:,2])}")
-        # utils.plot_yuv_layers(self.macroblocks_quantised,"Table-quantised")
+        # imutils.plot_yuv_layers(self.macroblocks_quantised,"Table-quantised")
 
     def blockstozigzag(self):
         """Acess macroblocks line by line, read the elements in 
@@ -131,7 +161,7 @@ class ImageEncoder:
             for block_row in self.macroblocks_quantised:
                 for block in block_row:
                     self.macroblocks_zigzag[j,:,i] = \
-                        utils.tozigzag(block[:,:,i])
+                        imutils.tozigzag(block[:,:,i])
                     j += 1
         logger.debug(f"macroblocks zigzag shape: {self.macroblocks_zigzag.shape}")
         logger.debug(f"macroblocks zigzag: \n{self.macroblocks_zigzag[0,:,0]}")
@@ -143,7 +173,7 @@ class ImageEncoder:
         for i in range(3):
             for j,blockvalues in enumerate(self.macroblocks_zigzag):
                 self.macroblocks_rlc[j,i] = \
-                    np.hstack(utils.encode_rlc(blockvalues[:,i]))
+                    np.hstack(imutils.encode_rlc(blockvalues[:,i]))
         logger.debug(f"macroblocks rlc shape: {self.macroblocks_rlc.shape}")
         logger.debug(f"macroblocks rlc: \n{self.macroblocks_rlc[0,0]}")
 
@@ -159,7 +189,7 @@ class ImageEncoder:
                            for j in range(self.macroblocks_dpcm.shape[0])])
             # logger.debug(f"dpcm input shape: {dc.shape}")
             ## Apply the dpcm to DC values
-            dc_encoded = utils.encode_dpcm(dc)
+            dc_encoded = imutils.encode_dpcm(dc)
             ## Replace the first elements of each sub-array with the encoded value
             for j in range(self.macroblocks_dpcm.shape[0]):
                 self.macroblocks_dpcm[j, i][0] = dc_encoded[j]
@@ -181,7 +211,7 @@ class ImageEncoder:
         logger.debug(f"symbolstreams shape: {symbolstreams.shape}")
         ## Generate codebooks
         ## Vectorise functions to use with arrays
-        vect_getprobabilites = np.vectorize(utils.getprobabilities, 
+        vect_getprobabilites = np.vectorize(imutils.getprobabilities, 
                                             otypes=[object])
         # vect_generatecodebook = np.vectorize(generateCodebook, otypes=[object])
         vect_generatecodebook = np.vectorize(huffman.codebook, otypes=[object])
@@ -195,7 +225,7 @@ class ImageEncoder:
                 logger.debug(f"{key:7} {self.codebooks[0][key]:>5}")
         self.macroblocks_huffman = np.empty_like(self.macroblocks_dpcm)
         for i in range(3):
-            vect_encodesymbols = np.vectorize(utils.encodesymbols, otypes=[object])
+            vect_encodesymbols = np.vectorize(imutils.encodesymbols, otypes=[object])
             ## Each array in self.macroblocks_dpcm[:,i] uses the same self.codebooks[i]
             ## not sure how that works with np.vectorise. Possible point of failure.
             repeated_codebook = np.repeat(self.codebooks[i],
@@ -205,28 +235,31 @@ class ImageEncoder:
                                    repeated_codebook)
         logger.debug(f"encoded shape: {self.macroblocks_huffman.shape}")
 
-    def write_json(self):
-        """Write header data and encoded data to a json file"""
-        data = {
+    def perpare_data(self):
+        """Create a dictionary of header data and encoded data"""
+        self.data = {
             "resolution": f"{self.height}x{self.width}",
             "padding": f"{self.pad_rows}x{self.pad_cols}",
             "qtable": self.qtable.tolist(),
             "codebooks": self.codebooks.tolist(),
             "bitstream": self.macroblocks_huffman.tolist()
         }
+
+    def write_data(self):
+        """Write header data and encoded data to a json file"""
         with open(f"{workingdir}\\Encoded\\{self.label}.json","w") as file:
-            json.dump(data,file, indent=0)
+            json.dump(self.data,file, indent=0)
         logger.info(f"data written: EE506 Miniproject\\Encoded\\{self.label}.json")
 
 
 ## Set up th logger
 logging.basicConfig(format="[%(name)s][%(levelname)s] %(message)s")
-logger = logging.getLogger("ee596-miniproject-enc")
+logger = logging.getLogger("ee596-mp-imenc")
 ## Main sequence
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    decoder.logger.setLevel(logging.DEBUG)
-    # utils.logger.setLevel(logging.DEBUG)
+    imdec.logger.setLevel(logging.DEBUG)
+    imutils.logger.setLevel(logging.DEBUG)
     ## Turn off numpy scientific notation
     np.set_printoptions(suppress=True)
     ## Set working directory and read image
@@ -238,11 +271,14 @@ if __name__ == "__main__":
     # start = np.array([3*60, 71*4])
     # image = image[start[0]:start[0]+16, start[1]:start[1]+16]
     image = image[:360,:640]
-    ## Test encoder
+    ## Test image encoder
     logger.debug(f"input image shape: {image.shape}")
-    test_encoder = ImageEncoder(image,workingdir,label)
-    ## Test decoder
+    test_encoder = ImageEncoder(image,workingdir,label,1)
+    test_encoder.write_data()
+    ## Test image decoder
     logger.debug(f"----------------------------------------------------------")
-    test_decoder = decoder.ImageDecoder(f"{workingdir}\\Encoded\\{label}.json",label)
+    test_decoder = imdec.ImageDecoder(f"{workingdir}\\Encoded\\{label}.json",label)
+    test_decoder.read_json()
+    test_decoder.decode()
     plt.imshow(test_decoder.image)
     plt.show()

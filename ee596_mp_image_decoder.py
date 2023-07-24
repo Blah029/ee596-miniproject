@@ -8,36 +8,31 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.fftpack import idct
 
-import ee596_miniproject_utils as utils
+import ee596_mp_image_utils as imutils
 
 
 class ImageDecoder:
-    def __init__(self, path:str, label:str="image"):
+    def __init__(self, path:str=None, label:str="image"):
         """Initialise ImageDecoder object"""
         self.path = path
         self.label = label
-        self.read_json()
-        self.decode_huffman()
-        self.dc_decode()
-        self.decode_runlength()
-        self.zigzagtoblocks()
-        self.reconstruct()
-        self.invertdct()
-        self.getfullimage()
 
-    def read_json(self):
+    def read_json(self, data=None):
         """Read original image dimensions, 3D quantisation table, 
         codebooks of each channel, and encoded bits
         """
-        with open(f"{self.path}","r") as file:
-            data = json.load(file)
-        logger.info(f"data read: {file.name[71:]}")
+        if data == None:
+            with open(f"{self.path}","r") as file:
+                self.data = json.load(file)
+            logger.info(f"self.data read: {file.name[71:]}")
+        else:
+            self.data=data
         ## Read input
-        resolution = data["resolution"].split("x")
-        padding = data["padding"].split("x")
-        self.qtable = np.array(data["qtable"], dtype=int)
-        self.codebooks = np.array(data["codebooks"], dtype=object)
-        self.macroblocks_huffman = np.array(data["bitstream"], dtype=object)
+        resolution = self.data["resolution"].split("x")
+        padding = self.data["padding"].split("x")
+        self.qtable = np.array(self.data["qtable"], dtype=int)
+        self.codebooks = np.array(self.data["codebooks"], dtype=object)
+        self.macroblocks_huffman = np.array(self.data["bitstream"], dtype=object)
         ## Pocess input
         # self.height = int(resolution[0])
         # self.width = int(resolution[1])
@@ -51,7 +46,9 @@ class ImageDecoder:
         logger.debug(f"height: {self.height}, width: {self.width}")
         logger.debug(f"row padding: {self.pad_rows}, column padding: {self.pad_cols}")
         logger.debug(f"blocksize: {self.blocksize}")
-        # logger.debug(f"y channel qtable: \n{self.qtable[:,:,0]}")
+        logger.debug(f"y channel qtable: \n{self.qtable[:,:,0]}")
+        # logger.debug(f"cb channel qtable: \n{self.qtable[:,:,1]}")
+        # logger.debug(f"cr channel qtable: \n{self.qtable[:,:,2]}")
         # logger.debug(f"codebooks:")
         # ## Control logging
         # for i,key in enumerate(self.codebooks[0]):
@@ -63,7 +60,7 @@ class ImageDecoder:
         """Decode an image encoded using Huffman encoding"""
         self.macroblocks_dpcm = np.empty_like(self.macroblocks_huffman)
         for i in range(3):
-            vect_decodesymbols = np.vectorize(utils.decodebitstream, otypes=[object])
+            vect_decodesymbols = np.vectorize(imutils.decodebitstream, otypes=[object])
             ## Each array in self.macroblocks_huffman[:,i] uses the same codebooks[i]
             ## not sure how that works with np.vectorise. Possible point of failure.
             # macroblocks_dpcm[:,i] = \
@@ -80,23 +77,23 @@ class ImageDecoder:
     def dc_decode(self):
         """Decode the DPCM encoded DC values"""
         self.macroblocks_rlc = self.macroblocks_dpcm.copy()
-        logger.debug(f"dpcm coded dc values: {[self.macroblocks_rlc[j,0][0]  for j in range(min(self.macroblocks_rlc.shape[0],5))]}")
+        logger.debug(f"dpcm coded dc values y: {[self.macroblocks_rlc[j,0][0]  for j in range(min(self.macroblocks_rlc.shape[0],5))]}")
         for i in range(3):
             ## Extract the DC values
             dc = np.array([self.macroblocks_rlc[j, i][0] \
                            for j in range(self.macroblocks_rlc.shape[0])])
             ## Decode DPCM
-            dc_decoded = utils.decode_dpcm(dc)
+            dc_decoded = imutils.decode_dpcm(dc)
             ## Replace the first elements of each sub-array with the encoded value
             for j in range(self.macroblocks_rlc.shape[0]):
                 self.macroblocks_rlc[j, i][0] = dc_decoded[j]
         logger.debug(f"dpcm decoded dc values: {[self.macroblocks_rlc[j,0][0] for j in range(min(self.macroblocks_rlc.shape[0],5))]}")
         logger.debug(f"dpcm decoded shape: {self.macroblocks_rlc.shape}")
-        logger.debug(f"dpcm decoded: \n{self.macroblocks_rlc[0,0]}")
+        logger.debug(f"dpcm decoded y: \n{self.macroblocks_rlc[0,0]}")
 
     def decode_runlength(self):
         """Decode run length encoded array"""
-        vect_decoderlc = np.vectorize(utils.decode_rlc, otypes=[object])
+        vect_decoderlc = np.vectorize(imutils.decode_rlc, otypes=[object])
         decoded = vect_decoderlc(self.macroblocks_rlc)
         self.macroblocks_zigzag = \
             np.empty((int(self.height*self.width/self.blocksize**2),
@@ -107,7 +104,7 @@ class ImageDecoder:
         for i in range(self.macroblocks_zigzag.shape[0]):
             for j in range(3):
                 self.macroblocks_zigzag[i,:,j] = decoded[i,j]
-        logger.debug(f"rlc decoded: \n{self.macroblocks_zigzag[0,:,0]}")
+        logger.debug(f"rlc decoded y: \n{self.macroblocks_zigzag[0,:,0]}")
 
     def zigzagtoblocks(self):
         """Reconstruct macroblocks from 1D diagonal-zigzag arranged values"""
@@ -124,13 +121,15 @@ class ImageDecoder:
                 # logger.debug(f"iterating block shape: {block[:,i].shape}")
                 # logger.debug(f"iterating row: {row}, column: {col}")
                 self.macroblocks_quantised[row,col,:,:,i] = \
-                    utils.fromzigzag(block[:,i],self.blocksize)
+                    imutils.fromzigzag(block[:,i],self.blocksize)
                 col += 1
                 if col == int(self.width/self.blocksize):
                     row +=1
                     col = 0
         logger.debug(f"un-zigzagged shape: {self.macroblocks_quantised.shape}")
-        logger.debug(f"un-zigzagged: \n{self.macroblocks_quantised[0,0,:,:,0]}")
+        logger.debug(f"un-zigzagged y: \n{self.macroblocks_quantised[0,0,:,:,0]}")
+        # logger.debug(f"un-zigzagged cb: \n{self.macroblocks_quantised[0,0,:,:,1]}")
+        # logger.debug(f"un-zigzagged cr: \n{self.macroblocks_quantised[0,0,:,:,2]}")
 
     def reconstruct(self):
         """Reconstruct quantised macroblobks using quantisation tables"""
@@ -138,7 +137,7 @@ class ImageDecoder:
         for i,block_row in enumerate(self.macroblocks_quantised):
             for j,block in enumerate(block_row):
                 self.macroblocks_dct[i,j] = block*self.qtable
-        logger.debug(f"reconstructed: \n{self.macroblocks_dct[0,0,:,:,0]}")
+        logger.debug(f"reconstructed y: \n{self.macroblocks_dct[0,0,:,:,0]}")
 
     def invertdct(self):
         """Apply inverse dct to each macroblock"""
@@ -146,11 +145,13 @@ class ImageDecoder:
         self.macroblocks = np.empty_like(self.macroblocks_dct)
         self.macroblocks = idct(idct(self.macroblocks_dct,axis=2),axis=3)
         self.macroblocks = np.int32(self.macroblocks/(self.blocksize**2*4))
-        logger.debug(f"dct inverted: \n{self.macroblocks[0,0,:,:,0]}")
+        logger.debug(f"dct inverted y: \n{self.macroblocks[0,0,:,:,0]}")
+        # logger.debug(f"dct inverted cb: \n{self.macroblocks[0,0,:,:,1]}")
+        # logger.debug(f"dct inverted cr: \n{self.macroblocks[0,0,:,:,2]}")
 
     def getfullimage(self):
         ## Merge macroblocks and remove padding
-        self.image = utils.mergeblocks(self.macroblocks)[:self.height-self.pad_rows,:self.width-self.pad_cols,:]
+        self.image = imutils.merge_macrblocks(self.macroblocks)[:self.height-self.pad_rows,:self.width-self.pad_cols,:]
         ## Preprocess for colourspace conversion
         logger.debug(f"image max: {np.max(self.image)}, min: {np.min(self.image)}")
         self.image = np.float32(self.image/np.max(self.image))
@@ -158,19 +159,31 @@ class ImageDecoder:
         ## Convert from YUV to RGB
         self.image = cv2.cvtColor(self.image,cv2.COLOR_YUV2RGB)
 
+    def decode(self):
+        """Decode read self.data"""
+        self.decode_huffman()
+        self.dc_decode()
+        self.decode_runlength()
+        self.zigzagtoblocks()
+        self.reconstruct()
+        self.invertdct()
+        self.getfullimage()
+
 
 ## Set up th logger
 logging.basicConfig(format="[%(name)s][%(levelname)s] %(message)s")
-logger = logging.getLogger("ee596-miniproject-dec")
+logger = logging.getLogger("ee596-mp-imdec")
 ## Main sequence
 if __name__ == "__main__":
     logger.setLevel(logging.DEBUG)
-    # utils.logger.setLevel(logging.DEBUG)
+    # imutils.logger.setLevel(logging.DEBUG)
     ## Turn off numpy scientific notation
     np.set_printoptions(suppress=True)
     ## Set working directory and read image
     workingdir = "D:\\User Files\\Documents\\University\\Misc\\4th Year Work\\Semester 7\\EE596\\EE506 Miniproject"
     label = "Test Image"
     test_decoder = ImageDecoder(f"{workingdir}\\Encoded\\{label}.json",label)
+    test_decoder.read_json()
+    test_decoder.decode()
     plt.imshow(test_decoder.image)
     plt.show()

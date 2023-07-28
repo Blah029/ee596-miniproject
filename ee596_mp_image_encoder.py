@@ -267,13 +267,14 @@ if __name__ == "__main__":
     image = plt.imread(f"{workingdir}\\Images\\DITF2.png")
     # image = plt.imread(f"{workingdir}\\Images\\Parrots-680x680.jpg")
     label = "Test Image"
+    qfactor = "high"
     ## Crop image
     # start = np.array([3*60, 71*4])
     # image = image[start[0]:start[0]+16, start[1]:start[1]+16]
-    image = image[:360,:640]
+    # image = image[:360,:640]
     ## Test image encoder
     logger.debug(f"input image shape: {image.shape}")
-    test_encoder = ImageEncoder(image,workingdir,label,1)
+    test_encoder = ImageEncoder(image,workingdir,label,qfactor)
     test_encoder.write_data()
     ## Test image decoder
     logger.debug(f"----------------------------------------------------------")
@@ -281,4 +282,5 @@ if __name__ == "__main__":
     test_decoder.read_json()
     test_decoder.decode()
     plt.imshow(test_decoder.image)
+    cv2.imwrite(f"{workingdir}\\Output\\{label} {qfactor}.png",cv2.cvtColor(test_decoder.image,cv2.COLOR_RGB2BGR)*256)
     plt.show()

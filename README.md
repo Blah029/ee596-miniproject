@@ -1,6 +1,6 @@
 # ee596-miniproject
 
-Encoding and decoding pipelines for image and video, done as a part of final year EE596 Image and Video Coding course
+Final year EE596 Image and Video Coding miniproject
 
 - ee596_mp_image_encoder  
   Image encoding pipeline
